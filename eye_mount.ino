@@ -3,238 +3,179 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
-
+// --- CÀI ĐẶT CƠ BẢN ---
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
-#define OLED_RESET     -1 
+#define OLED_RESET     -1
 #define SCREEN_ADDRESS 0x3C
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 
-// Biến điều khiển
-int demo_mode = 1;
-static const int max_animation_index = 9; // <<< THAY ĐỔI: Tăng số hoạt cảnh lên
-int current_animation_index = 0;
+// --- BIẾN TRẠNG THÁI NHÂN VẬT ---
+int eye_height = 36;
+int eye_width = 32;
+int eye_corner_radius = 12;
+int space_between_eye = 10;
+int left_eye_x, left_eye_y, right_eye_x, right_eye_y;
+int pupil_x_offset = 0, pupil_y_offset = 0;
 
+// <<< NÂNG CẤP MIỆNG ANIME: Dùng enum để code dễ đọc hơn >>>
+enum MouthState { M_NEUTRAL, M_SMILE, M_SURPRISED, M_CAT_SMILE };
+MouthState current_mouth_state = M_NEUTRAL;
+int mouth_x, mouth_y;
 
-// Trạng thái tham chiếu (nghỉ) của mắt
-int ref_eye_height = 30; // Giảm chiều cao mắt một chút để có không gian cho miệng
-int ref_eye_width = 30;
-int ref_space_between_eye = 15;
-int ref_corner_radius = 8;
-
-// Trạng thái hiện tại của con mắt
-int left_eye_height = ref_eye_height;
-int left_eye_width = ref_eye_width;
-int left_eye_x, left_eye_y; // Sẽ được tính trong hàm center_eyes
-int right_eye_x, right_eye_y;
-int right_eye_height = ref_eye_height;
-int right_eye_width = ref_eye_width;
-
-// <<< THAY ĐỔI: Thêm các biến cho miệng >>>
-int mouth_state = 0; // 0=Bình thường, 1=Cười, 2=Ngạc nhiên (chữ O)
-int mouth_x;         // Vị trí X của miệng
-int mouth_y;         // Vị trí Y của miệng
-int mouth_w = 40;    // Chiều rộng miệng
-int mouth_h = 8;     // Chiều cao miệng
+// <<< NÂNG CẤP MIỆNG ANIME: "BỘ NÃO" CỦA NHÂN VẬT >>>
+enum AIState { IDLE, PLAYFUL, SLEEPY, ASLEEP };
+AIState currentState = IDLE;
+long lastStateChangeTime = 0;
+long currentStateDuration = 5000;
+int targetX, targetY;
 
 
 // --- CÁC HÀM VẼ VÀ HOẠT CẢNH ---
 
-// <<< THAY ĐỔI: Hàm vẽ miệng mới >>>
+// <<< NÂNG CẤP MIỆNG ANIME: Hàm vẽ miệng với nhiều kiểu dáng >>>
 void draw_mouth() {
-  switch(mouth_state) {
-    case 0: // Miệng bình thường (một đường thẳng)
-      display.drawFastHLine(mouth_x - mouth_w / 2, mouth_y, mouth_w, SSD1306_WHITE);
-      break;
-    case 1: // Miệng cười (một hình chữ nhật bo góc hẹp)
-      display.drawRoundRect(mouth_x - mouth_w / 2, mouth_y, mouth_w, mouth_h, 4, SSD1306_WHITE);
-      break;
-    case 2: // Miệng ngạc nhiên (hình tròn)
-      display.fillCircle(mouth_x, mouth_y + 4, 10, SSD1306_WHITE);
-      break;
-  }
-}
-
-// <<< THAY ĐỔI: Đổi tên hàm và tích hợp vẽ miệng >>>
-void draw_face(bool update=true)
-{
-    display.clearDisplay();        
-    
-    // Vẽ mắt trái và phải
-    int x = int(left_eye_x-left_eye_width/2);
-    int y = int(left_eye_y-left_eye_height/2);
-    display.fillRoundRect(x,y,left_eye_width,left_eye_height,ref_corner_radius,SSD1306_WHITE);
-    
-    x = int(right_eye_x-right_eye_width/2);
-    y = int(right_eye_y-right_eye_height/2);
-    display.fillRoundRect(x,y,right_eye_width,right_eye_height,ref_corner_radius,SSD1306_WHITE);    
-    
-    // Vẽ miệng
-    draw_mouth();
-
-    if(update)
-    {
-      display.display();
-    }
-}
-
-
-void center_eyes(bool update=true)
-{
-  // Reset mắt về trung tâm và dịch lên trên một chút
-  left_eye_height = ref_eye_height;
-  left_eye_width = ref_eye_width;
-  right_eye_height = ref_eye_height;
-  right_eye_width = ref_eye_width;
-  
-  // Dịch tâm mắt lên trên để có chỗ cho miệng
-  int center_y_offset = -8; 
-  left_eye_x = SCREEN_WIDTH/2 - ref_eye_width/2 - ref_space_between_eye/2;
-  left_eye_y = SCREEN_HEIGHT/2 + center_y_offset;
-  right_eye_x = SCREEN_WIDTH/2 + ref_eye_width/2 + ref_space_between_eye/2;
-  right_eye_y = SCREEN_HEIGHT/2 + center_y_offset;
-
-  // <<< THAY ĐỔI: Reset miệng về trạng thái bình thường và căn giữa >>>
-  mouth_state = 0;
   mouth_x = SCREEN_WIDTH / 2;
-  mouth_y = SCREEN_HEIGHT / 2 + ref_eye_height / 2 + 5;
-  
-  draw_face(update);
+  mouth_y = SCREEN_HEIGHT / 2 + eye_height / 2 - 2;
+
+  switch(current_mouth_state) {
+    case M_NEUTRAL:
+      display.drawFastHLine(mouth_x - 5, mouth_y, 10, SSD1306_WHITE);
+      break;
+    case M_SMILE:
+      display.fillRoundRect(mouth_x - 15, mouth_y, 30, 8, 4, SSD1306_WHITE);
+      display.fillRect(mouth_x - 15, mouth_y, 30, 5, SSD1306_BLACK);
+      break;
+    case M_SURPRISED:
+      display.fillRoundRect(mouth_x - 8, mouth_y, 16, 16, 8, SSD1306_WHITE);
+      break;
+    case M_CAT_SMILE: // Miệng mèo :3
+      display.drawLine(mouth_x - 7, mouth_y, mouth_x, mouth_y + 4, SSD1306_WHITE);
+      display.drawLine(mouth_x, mouth_y + 4, mouth_x + 7, mouth_y, SSD1306_WHITE);
+      break;
+  }
 }
 
-void blink(int speed=12)
-{
-  // Giữ nguyên hàm blink
-  int original_height = left_eye_height;
-  for(int i=0;i<3;i++){
-    left_eye_height -= speed;
-    right_eye_height -= speed;    
-    draw_face();
-    delay(1);
-  }
-  for(int i=0;i<3;i++){
-    left_eye_height += speed;
-    right_eye_height += speed;
-    draw_face();
-    delay(1);
-  }
-  left_eye_height = original_height;
-  right_eye_height = original_height;
+void draw_anime_eyes() {
+    display.fillRoundRect(left_eye_x - eye_width/2, left_eye_y - eye_height/2, eye_width, eye_height, eye_corner_radius, SSD1306_WHITE);
+    display.fillRoundRect(right_eye_x - eye_width/2, right_eye_y - eye_height/2, eye_width, eye_height, eye_corner_radius, SSD1306_WHITE);
+    int left_pupil_x = left_eye_x + pupil_x_offset, left_pupil_y = left_eye_y + pupil_y_offset;
+    int right_pupil_x = right_eye_x + pupil_x_offset, right_pupil_y = right_eye_y + pupil_y_offset;
+    display.fillCircle(left_pupil_x, left_pupil_y, 10, SSD1306_BLACK);
+    display.fillCircle(right_pupil_x, right_pupil_y, 10, SSD1306_BLACK);
+    display.fillCircle(left_pupil_x - 3, left_pupil_y - 3, 4, SSD1306_WHITE);
+    display.fillCircle(left_pupil_x + 4, left_pupil_y + 4, 2, SSD1306_WHITE);
+    display.fillCircle(right_pupil_x - 3, right_pupil_y - 3, 4, SSD1306_WHITE);
+    display.fillCircle(right_pupil_x + 4, right_pupil_y + 4, 2, SSD1306_WHITE);
+}
+
+void draw_face() {
+    display.clearDisplay();        
+    draw_anime_eyes();
+    draw_mouth();
+    display.display();
+}
+
+void setup_face_position() {
+  left_eye_x = SCREEN_WIDTH/2 - eye_width/2 - space_between_eye/2;
+  left_eye_y = SCREEN_HEIGHT/2 - 5; // Dịch mắt lên chút
+  right_eye_x = SCREEN_WIDTH/2 + eye_width/2 + space_between_eye/2;
+  right_eye_y = SCREEN_HEIGHT/2 - 5;
+}
+
+void blink() {
+  int original_h = eye_height;
+  for(int h=original_h; h>2; h-=8) { eye_height=h; draw_face(); }
+  for(int h=2; h<=original_h; h+=8) { eye_height=h; draw_face(); }
+  eye_height = original_h;
   draw_face();
 }
 
-void sleep() {
-  left_eye_height = 2;
-  right_eye_height = 2;
-  mouth_state = 0; // Miệng bình thường khi ngủ
-  draw_face(true);  
+void sleep_eyes() {
+  display.clearDisplay();
+  display.drawFastHLine(left_eye_x - eye_width/2, SCREEN_HEIGHT/2, eye_width, SSD1306_WHITE);
+  display.drawFastHLine(right_eye_x - eye_width/2, SCREEN_HEIGHT/2, eye_width, SSD1306_WHITE);
+  display.display();
 }
-
-void wakeup() {
-  sleep();
-  delay(500);
-  for(int h=0; h <= ref_eye_height; h+=2){
-    left_eye_height = h;
-    right_eye_height = h;
-    draw_face(true);
-  }
-}
-
-// <<< THAY ĐỔI: Hàm happy_eye giờ sẽ làm miệng cười >>>
-void happy_eye()
-{
-  center_eyes(false);
-  mouth_state = 1; // Chuyển sang miệng cười
-  
-  // Vẫn giữ hiệu ứng mắt cười ^^
-  int offset = ref_eye_height/2;
-  for(int i=0; i<10; i++)
-  {
-    draw_face(false); // Vẽ lại cả mặt (đã có miệng cười)
-    display.fillTriangle(left_eye_x-left_eye_width/2-1, left_eye_y+offset, left_eye_x+left_eye_width/2+1, left_eye_y+5+offset, left_eye_x-left_eye_width/2-1,left_eye_y+left_eye_height+offset,SSD1306_BLACK);
-    display.fillTriangle(right_eye_x+right_eye_width/2+1, right_eye_y+offset, right_eye_x-left_eye_width/2-1, right_eye_y+5+offset, right_eye_x+right_eye_width/2+1,right_eye_y+right_eye_height+offset,SSD1306_BLACK);
-    offset -= 2;
-    display.display();
-    delay(1);
-  }
-  delay(1000);
-  center_eyes(true);
-}
-
-// <<< THAY ĐỔI: Tạo hoạt cảnh mới "Ngạc nhiên" >>>
-void surprise()
-{
-  center_eyes(false);
-  
-  // Mắt mở to ra
-  left_eye_height = ref_eye_height + 5;
-  right_eye_height = ref_eye_height + 5;
-  // Miệng hình chữ O
-  mouth_state = 2;
-  
-  draw_face(true);
-  delay(2000);
-  center_eyes(true);
-}
-
-// Các hàm gốc khác giữ nguyên hoặc tạm thời vô hiệu hóa
-void saccade(int direction_x, int direction_y){ blink(10); }
-void move_right_big_eye() { center_eyes(); delay(500); }
-void move_left_big_eye() { center_eyes(); delay(500); }
-
 
 // --- HÀM SETUP VÀ LOOP CHÍNH ---
 
 void setup() {
   display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS);
-  Serial.begin(115200);
-  center_eyes(true);
-}
-
-void launch_animation_with_index(int animation_index)
-{
-  if(animation_index > max_animation_index) {
-    animation_index = max_animation_index;
-  }
-
-  switch(animation_index)
-  {
-    case 0: wakeup(); break;
-    case 1: center_eyes(true); break;
-    case 2: move_right_big_eye(); break;
-    case 3: move_left_big_eye(); break;
-    case 4: blink(10); break;
-    case 5: blink(20); break;
-    case 6: happy_eye(); break;
-    case 7: sleep(); break;
-    case 8: saccade(0,0); break;
-    case 9: surprise(); break; // <<< THAY ĐỔI: Thêm case mới
-  }
+  randomSeed(analogRead(0));
+  setup_face_position();
+  draw_face();
+  lastStateChangeTime = millis();
 }
 
 void loop() {
-  if(demo_mode == 1)
-  {
-    launch_animation_with_index(current_animation_index++);
-    if(current_animation_index > max_animation_index) {
-      current_animation_index = 0;
+  // --- KHỐI 1: LOGIC CHUYỂN ĐỔI TRẠNG THÁI ---
+  if (millis() - lastStateChangeTime > currentStateDuration) {
+    AIState newState;
+    int chance = random(100);
+    if (currentState == ASLEEP) {
+        newState = IDLE; 
+    } else {
+        if (chance < 50) newState = IDLE;
+        else if (chance < 85) newState = PLAYFUL;
+        else newState = SLEEPY;
     }
-    delay(500);
+    currentState = newState;
+    lastStateChangeTime = millis();
+
+    if (currentState == IDLE) currentStateDuration = random(3000, 7000);
+    else if (currentState == PLAYFUL) currentStateDuration = random(2000, 5000);
+    else if (currentState == SLEEPY) currentStateDuration = 4000;
+    else if (currentState == ASLEEP) currentStateDuration = random(5000, 8000);
   }
-  
-  if(Serial.available()) {
-    String data = Serial.readString();
-    data.trim();
-    char cmd = data[0];
-    
-    if(cmd == 'A') {
-      demo_mode = 0;
-      String arg = data.substring(1,data.length());
-      int anim = arg.toInt();
-      launch_animation_with_index(anim);
-      Serial.print("Executed Anim: ");
-      Serial.println(arg);
-    }
+
+  // --- KHỐI 2: LOGIC HÀNH VI DỰA TRÊN TRẠNG THÁI HIỆN TẠI ---
+  switch(currentState) {
+    case IDLE:
+      current_mouth_state = M_NEUTRAL; // Miệng bình thường khi thư giãn
+      if (random(100) < 10) { targetX = random(0, SCREEN_WIDTH); targetY = random(0, SCREEN_HEIGHT); }
+      pupil_x_offset += (map(targetX, 0, SCREEN_WIDTH, -5, 5) - pupil_x_offset) * 0.2;
+      pupil_y_offset += (map(targetY, 0, SCREEN_HEIGHT, -8, 8) - pupil_y_offset) * 0.2;
+      if (random(1000) < 10) { blink(); }
+      draw_face();
+      delay(20);
+      break;
+
+    case PLAYFUL:
+      // <<< NÂNG CẤP MIỆNG ANIME: Khi tinh nghịch, có thể cười hoặc làm miệng mèo >>>
+      if(random(100) < 70) {
+        current_mouth_state = M_SMILE;
+      } else {
+        current_mouth_state = M_CAT_SMILE;
+      }
+      if (random(100) < 20) { targetX = random(0, SCREEN_WIDTH); targetY = random(0, SCREEN_HEIGHT); }
+      pupil_x_offset += (map(targetX, 0, SCREEN_WIDTH, -5, 5) - pupil_x_offset) * 0.2;
+      pupil_y_offset += (map(targetY, 0, SCREEN_HEIGHT, -8, 8) - pupil_y_offset) * 0.2;
+      if (random(1000) < 30) { blink(); }
+      draw_face();
+      delay(20);
+      break;
+
+    case SLEEPY:
+      current_mouth_state = M_SURPRISED; // Miệng chữ 'o' khi ngáp
+      for(int h=eye_height; h>2; h-=2) {
+        display.clearDisplay();
+        draw_mouth();
+        display.fillRoundRect(left_eye_x-eye_width/2, left_eye_y-h/2, eye_width, h, eye_corner_radius, SSD1306_WHITE);
+        display.fillRoundRect(right_eye_x-eye_width/2, right_eye_y-h/2, eye_width, h, eye_corner_radius, SSD1306_WHITE);
+        display.display();
+        delay(60);
+      }
+      currentState = ASLEEP;
+      lastStateChangeTime = millis();
+      currentStateDuration = random(5000, 8000);
+      break;
+
+    case ASLEEP:
+      current_mouth_state = M_NEUTRAL;
+      sleep_eyes();
+      delay(100);
+      break;
   }
 }
